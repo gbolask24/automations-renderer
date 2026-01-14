@@ -27,6 +27,12 @@ async function getBrowser() {
   return browserPromise;
 }
 
+function normalizeDpr(v, fallback = 1) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
+
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
@@ -36,6 +42,7 @@ app.post("/render/png", async (req, res) => {
   let page;
 
   try {
+    const body = req.body || {};
     const {
       template,
       width = 2160,
@@ -44,7 +51,7 @@ app.post("/render/png", async (req, res) => {
       data = {},
       assets = {},
       options = {}
-    } = req.body;
+    } = body;
 
     if (!template) {
       return res.status(400).json({ error: "template is required" });
@@ -60,21 +67,26 @@ app.post("/render/png", async (req, res) => {
       });
     }
 
+    const dpr = normalizeDpr(options.deviceScaleFactor, 1);
+
     const browser = await getBrowser();
 
     context = await browser.newContext({
       viewport: { width, height },
-      deviceScaleFactor: options.deviceScaleFactor || 2
+      deviceScaleFactor: dpr
     });
 
     page = await context.newPage();
 
-    await page.addInitScript((payload) => {
-      window.RENDER_DATA = payload.data;
-      window.RENDER_ASSETS = payload.assets;
-      window.RENDER_OPTIONS = payload.options;
-      window.__RENDER_READY__ = false;
-    }, { data, assets, options });
+    await page.addInitScript(
+      (payload) => {
+        window.RENDER_DATA = payload.data;
+        window.RENDER_ASSETS = payload.assets;
+        window.RENDER_OPTIONS = payload.options;
+        window.__RENDER_READY__ = false;
+      },
+      { data, assets, options }
+    );
 
     await page.goto(`file://${htmlPath}`, { waitUntil: "domcontentloaded" });
 
@@ -84,10 +96,7 @@ app.post("/render/png", async (req, res) => {
       }
     });
 
-    await page.waitForFunction(
-      () => window.__RENDER_READY__ === true,
-      { timeout: 15000 }
-    );
+    await page.waitForFunction(() => window.__RENDER_READY__ === true, { timeout: 15000 });
 
     const frame = page.locator("#frame");
     const png = await frame.screenshot({
@@ -97,7 +106,6 @@ app.post("/render/png", async (req, res) => {
 
     res.setHeader("Content-Type", "image/png");
     res.send(png);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({
