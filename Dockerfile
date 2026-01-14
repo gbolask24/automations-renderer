@@ -2,6 +2,9 @@ FROM mcr.microsoft.com/playwright:v1.57.0-jammy
 
 WORKDIR /app
 
+# Install ffmpeg for video composition
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY package.json package-lock.json* ./
 RUN npm install
